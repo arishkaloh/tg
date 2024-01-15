@@ -1,0 +1,87 @@
+python
+import requests
+import json
+import telebot
+
+# Чтение токена из файла config.py
+with open('config.py') as f:
+    TOKEN = f.read().strip()
+
+# URL для получения курсов валют
+URL = 'https://api.exchangerate-api.com/v4/latest/'
+
+# Создание объекта бота
+bot = telebot.TeleBot(TOKEN)
+
+
+# Обработка команды /start или /help
+@bot.message_handler(commands=['start', 'help'])
+def handle_start_help(message):
+    instructions = "Добро пожаловать! Для получения цены на определенное количество валюты отправьте мне сообщение в" \
+                   " формате:\n<имя валюты, цену которой вы хотите узнать> <имя валюты, в которой хотите узнать цену> " \
+                   "<количество первой валюты>\n\nНапример: \"USD EUR 10\""
+    bot.reply_to(message, instructions)
+
+
+# Обработка команды /values
+@bot.message_handler(commands=['values'])
+def handle_values(message):
+    values = "Доступные валюты:\n\nUSD - Доллар США\nEUR - Евро\nRUB - Российский рубль"
+    bot.reply_to(message, values)
+
+
+# Обработка всех остальных сообщений
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    try:
+        # Получение данных из сообщения пользователя
+        currency_values = message.text.split()
+        base_currency = currency_values[0].upper()
+        quote_currency = currency_values[1].upper()
+        amount = float(currency_values[2])
+
+        # Получение курса валют
+        price = get_price(base_currency, quote_currency, amount)
+        response = f"Цена {amount} {base_currency} равна {price} {quote_currency}"
+        bot.reply_to(message, response)
+
+    except IndexError:
+        error_message = "Недостаточно данных. Пожалуйста, укажите имя валюты, цену которой вы хотите узнать," \
+                        " имя валюты, в которой хотите узнать цену, и количество первой валюты."
+        bot.reply_to(message, error_message)
+
+    except ValueError:
+        error_message = "Неправильно введено число. Пожалуйста, укажите количество первой валюты в числовом формате."
+        bot.reply_to(message, error_message)
+
+    except APIException as e:
+        bot.reply_to(message, f"Ошибка API ({e}): {e.message}")
+
+
+# Класс для обработки ошибок API
+class APIException(Exception):
+    def __init__(self, status_code, message):
+        self.status_code = status_code
+        self.message = message
+
+
+# Функция для получения цены на валюту
+def get_price(base_currency, quote_currency, amount):
+    r = requests.get(f"{URL}/{base_currency}")
+    data = json.loads(r.text)
+
+    if 'error' in data:
+        raise APIException(data['error']['status'], data['error']['message'])
+
+    # Если указана базовая валюта
+    if base_currency == 'USD':
+        price = data['rates'][quote_currency] * amount
+    else:
+        price = (1 / data['rates'][base_currency]) * data['rates'][quote_currency] * amount
+
+    return round(price, 2)
+
+
+# Запуск бота
+bot.polling()
+
